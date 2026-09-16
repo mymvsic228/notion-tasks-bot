@@ -1,0 +1,7 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+notion_bot.db
+bot.log
+.DS_Store
