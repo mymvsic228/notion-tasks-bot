@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: notion-telegram-tasks-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    plan: free
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: NOTION_TOKEN
+        sync: false
+      - key: NOTION_DATABASE_ID
+        value: 2d1bc62a-0c70-8158-9955-000398a16908
+      - key: ADMIN_IDS
+        value: 486058343,1530089636
+      - key: POLL_INTERVAL_SECONDS
+        value: "60"
