@@ -8,9 +8,9 @@ load_dotenv()
 class Settings(BaseSettings):
     BOT_TOKEN: str = ""
     NOTION_TOKEN: str = ""
-    NOTION_DATABASE_ID: str = "2d1bc62a-0c70-8158-9955-000398a16908"
+    NOTION_DATABASE_ID: str = "0fffed8ebc6348b699f24122c59fffc9"
     POLL_INTERVAL_SECONDS: int = 60
-    ADMIN_IDS: str = ""  # Comma-separated Telegram IDs, e.g. "123456789,987654321"
+    ADMIN_IDS: str = "486058343,1530089636"
     NOTION_VERSION: str = "2022-06-28"
 
     @property
