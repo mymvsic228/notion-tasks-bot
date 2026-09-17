@@ -12,6 +12,7 @@ class NotionService:
         self.client = AsyncClient(auth=self.token) if self.token else None
         self._cached_schema: Optional[Dict[str, Any]] = None
         self._target_database_id: Optional[str] = None
+        self._target_data_source_id: Optional[str] = None
 
     def update_token(self, token: str):
         self.token = token
@@ -36,6 +37,12 @@ class NotionService:
             title = "".join([t.get("plain_text", "") for t in title_list]) or "Без названия"
             self._target_database_id = target_id
             self._cached_schema = db_info.get("properties", {})
+            
+            if "data_sources" in db_info and len(db_info["data_sources"]) > 0:
+                self._target_data_source_id = db_info["data_sources"][0]["id"]
+            else:
+                self._target_data_source_id = None
+                
             return True, f"Успешно подключено к базе данных Notion: «{title}»", {
                 "type": "database",
                 "id": target_id,
@@ -117,7 +124,11 @@ class NotionService:
             return []
         db_id = database_id or self._target_database_id or settings.clean_notion_database_id
         try:
-            resp = await self.client.databases.query(database_id=db_id)
+            if self._target_data_source_id:
+                resp = await self.client.request(path=f"data_sources/{self._target_data_source_id}/query", method="POST")
+            else:
+                resp = await self.client.databases.query(database_id=db_id)
+                
             tasks = []
             for page in resp.get("results", []):
                 parsed = self._parse_page(page)
@@ -187,7 +198,7 @@ class NotionService:
                     status = status_obj.get("name")
                 status_prop_name = prop_name
                 status_prop_type = "status"
-            elif ("status" in lower_name or "статус" in lower_name or "состояние" in lower_name) and prop_type == "select":
+            elif ("status" in lower_name or "статус" in lower_name or "состояние" in lower_name or "этап" in lower_name) and prop_type == "select":
                 select_obj = prop_data.get("select")
                 if select_obj:
                     status = select_obj.get("name")
