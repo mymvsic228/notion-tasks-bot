@@ -11,7 +11,7 @@ services:
       - key: NOTION_TOKEN
         sync: false
       - key: NOTION_DATABASE_ID
-        value: 2d1bc62a-0c70-8158-9955-000398a16908
+        value: 0fffed8ebc6348b699f24122c59fffc9
       - key: ADMIN_IDS
         value: 486058343,1530089636
       - key: POLL_INTERVAL_SECONDS
