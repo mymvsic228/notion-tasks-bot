@@ -67,7 +67,6 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📋 Мои активные задачи", callback_data="btn_my_tasks"),
         ],
         [
-            InlineKeyboardButton(text="🔄 Синхронизировать", callback_data="btn_sync_now"),
             InlineKeyboardButton(text="🔗 Привязать Notion", callback_data="btn_link_account")
         ]
     ]
