@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Tuple, List, Optional
 from aiogram import Bot
 from config import settings
@@ -35,8 +35,9 @@ async def sync_tasks_now(bot: Bot) -> Tuple[int, int]:
         task_id = task["id"]
         title = task["title"]
         status = task["status"]
+        etap = task.get("etap")
         last_edited = task["last_edited_time"]
-        url = task["url"]
+        url = task.get("url") or f"https://www.notion.so/{task_id.replace('-', '')}"
         due_date = task.get("due_date")
         assignees = task.get("assignees", [])
         telegram_prop = task.get("telegram_prop")
@@ -69,14 +70,16 @@ async def sync_tasks_now(bot: Bot) -> Tuple[int, int]:
         if not cached:
             # BRAND NEW TASK
             for tg_id in target_tg_ids:
+                etap_str = f"\n🎬 <b>Этап:</b> <i>{etap}</i>" if etap else ""
+                due_str = f"\n📅 <b>Дедлайн:</b> <i>{due_date}</i>" if due_date else ""
                 msg = (
                     f"📋 <b>Новая задача в Notion!</b>\n\n"
-                    f"📌 <b>Название:</b> {title}\n"
-                    f"📊 <b>Статус:</b> <code>{status}</code>\n"
-                    f"👤 <b>Исполнитель:</b> {assignee_names_str}\n"
+                    f"📌 <b>{title}</b>\n"
+                    f"📊 <b>Статус:</b> <code>{status}</code>"
+                    f"{etap_str}"
+                    f"\n👤 <b>Исполнитель:</b> {assignee_names_str}"
+                    f"{due_str}"
                 )
-                if due_date:
-                    msg += f"📅 <b>Дедлайн:</b> <i>{due_date}</i>\n"
 
                 try:
                     await bot.send_message(
@@ -96,11 +99,13 @@ async def sync_tasks_now(bot: Bot) -> Tuple[int, int]:
                 status=status,
                 assignee_name=assignee_names_str,
                 assignee_telegram_id=first_tg_id,
-                due_date=due_date
+                due_date=due_date,
+                etap=etap,
+                url=url
             )
 
         else:
-            # TASK WAS EDITED OR ASSIGNEE LINKED
+            # TASK WAS EDITED OR USER LINKED
             is_edited = cached.get("last_edited_time") != last_edited
             is_assignee_updated = cached.get("assignee_telegram_id") != first_tg_id
 
@@ -153,7 +158,7 @@ async def sync_tasks_now(bot: Bot) -> Tuple[int, int]:
                             except Exception as ex:
                                 logger.error(f"Failed to send reassignment to {tg_id}: {ex}")
 
-                # Save updated cache (either edited time changed, or just the telegram ID mapping changed)
+                # Save updated cache
                 await save_task_cache(
                     task_id=task_id,
                     last_edited_time=last_edited,
@@ -161,20 +166,20 @@ async def sync_tasks_now(bot: Bot) -> Tuple[int, int]:
                     status=status,
                     assignee_name=assignee_names_str,
                     assignee_telegram_id=first_tg_id,
-                    due_date=due_date
+                    due_date=due_date,
+                    etap=etap,
+                    url=url
                 )
 
         # Check deadline reminder
         if due_date and not (cached and cached.get("deadline_reminded")):
             try:
-                # Expecting YYYY-MM-DD or ISO string
                 clean_due = due_date.split("T")[0]
                 due_dt = datetime.strptime(clean_due, "%Y-%m-%d").date()
                 today = datetime.now().date()
                 delta_days = (due_dt - today).days
 
-                # Remind if deadline is today or tomorrow (<= 1 day) and not closed
-                closed_statuses = ["done", "выполнено", "closed", "завершено", "готово"]
+                closed_statuses = ["done", "выполнено", "closed", "завершено", "готово", "опубликован", "завершен"]
                 if 0 <= delta_days <= 1 and status.lower() not in closed_statuses:
                     for tg_id in target_tg_ids:
                         days_text = "СЕГОДНЯ" if delta_days == 0 else "ЗАВТРА"
