@@ -100,55 +100,60 @@ async def sync_tasks_now(bot: Bot) -> Tuple[int, int]:
             )
 
         else:
-            # TASK WAS EDITED
-            if cached.get("last_edited_time") != last_edited:
-                old_status = cached.get("status")
-                old_assignee = cached.get("assignee_name")
+            # TASK WAS EDITED OR ASSIGNEE LINKED
+            is_edited = cached.get("last_edited_time") != last_edited
+            is_assignee_updated = cached.get("assignee_telegram_id") != first_tg_id
 
-                # If status changed
-                if old_status != status:
-                    for tg_id in target_tg_ids:
-                        msg = (
-                            f"🔄 <b>Обновлен статус задачи!</b>\n\n"
-                            f"📌 <b>{title}</b>\n"
-                            f"📊 Статус: <s>{old_status}</s> ➔ <b>{status}</b>\n"
-                        )
-                        if due_date:
-                            msg += f"📅 <b>Дедлайн:</b> <i>{due_date}</i>\n"
+            if is_edited or is_assignee_updated:
+                if is_edited:
+                    old_status = cached.get("status")
+                    old_assignee = cached.get("assignee_name")
 
-                        try:
-                            await bot.send_message(
-                                chat_id=tg_id,
-                                text=msg,
-                                parse_mode="HTML",
-                                reply_markup=get_task_keyboard(task_id, url)
+                    # If status changed
+                    if old_status != status:
+                        for tg_id in target_tg_ids:
+                            msg = (
+                                f"🔄 <b>Обновлен статус задачи!</b>\n\n"
+                                f"📌 <b>{title}</b>\n"
+                                f"📊 Статус: <s>{old_status}</s> ➔ <b>{status}</b>\n"
                             )
-                            notified_count += 1
-                        except Exception as ex:
-                            logger.error(f"Failed to send status update to {tg_id}: {ex}")
+                            if due_date:
+                                msg += f"📅 <b>Дедлайн:</b> <i>{due_date}</i>\n"
 
-                # If assignee changed to someone new
-                if old_assignee != assignee_names_str:
-                    for tg_id in target_tg_ids:
-                        msg = (
-                            f"👤 <b>Вам переназначена задача в Notion!</b>\n\n"
-                            f"📌 <b>{title}</b>\n"
-                            f"📊 <b>Статус:</b> {status}\n"
-                        )
-                        if due_date:
-                            msg += f"📅 <b>Дедлайн:</b> <i>{due_date}</i>\n"
+                            try:
+                                await bot.send_message(
+                                    chat_id=tg_id,
+                                    text=msg,
+                                    parse_mode="HTML",
+                                    reply_markup=get_task_keyboard(task_id, url)
+                                )
+                                notified_count += 1
+                            except Exception as ex:
+                                logger.error(f"Failed to send status update to {tg_id}: {ex}")
 
-                        try:
-                            await bot.send_message(
-                                chat_id=tg_id,
-                                text=msg,
-                                parse_mode="HTML",
-                                reply_markup=get_task_keyboard(task_id, url)
+                    # If assignee changed to someone new
+                    if old_assignee != assignee_names_str:
+                        for tg_id in target_tg_ids:
+                            msg = (
+                                f"👤 <b>Вам переназначена задача в Notion!</b>\n\n"
+                                f"📌 <b>{title}</b>\n"
+                                f"📊 <b>Статус:</b> {status}\n"
                             )
-                            notified_count += 1
-                        except Exception as ex:
-                            logger.error(f"Failed to send reassignment to {tg_id}: {ex}")
+                            if due_date:
+                                msg += f"📅 <b>Дедлайн:</b> <i>{due_date}</i>\n"
 
+                            try:
+                                await bot.send_message(
+                                    chat_id=tg_id,
+                                    text=msg,
+                                    parse_mode="HTML",
+                                    reply_markup=get_task_keyboard(task_id, url)
+                                )
+                                notified_count += 1
+                            except Exception as ex:
+                                logger.error(f"Failed to send reassignment to {tg_id}: {ex}")
+
+                # Save updated cache (either edited time changed, or just the telegram ID mapping changed)
                 await save_task_cache(
                     task_id=task_id,
                     last_edited_time=last_edited,
