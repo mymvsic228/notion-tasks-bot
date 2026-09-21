@@ -8,7 +8,9 @@ from database import (
     get_task_cache,
     save_task_cache,
     find_telegram_id_for_assignee,
-    mark_deadline_reminded
+    mark_deadline_reminded,
+    delete_task_from_cache,
+    get_all_cached_task_ids
 )
 from notion_service import notion_service
 from keyboards import get_task_keyboard
@@ -64,6 +66,11 @@ async def sync_tasks_now(bot: Bot) -> Tuple[int, int]:
 
         assignee_names_str = ", ".join([a.get("name") or "Не указано" for a in assignees]) or "Не назначен"
         first_tg_id = list(target_tg_ids)[0] if target_tg_ids else None
+
+        done_statuses = ['done', 'выполнено', 'closed', 'завершено', 'готово', 'опубликован', 'завершен']
+        if status.lower() in done_statuses:
+            await delete_task_from_cache(task_id)
+            continue
 
         cached = await get_task_cache(task_id)
 
@@ -203,6 +210,13 @@ async def sync_tasks_now(bot: Bot) -> Tuple[int, int]:
                     await mark_deadline_reminded(task_id)
             except Exception as e:
                 logger.debug(f"Could not parse due_date '{due_date}': {e}")
+
+    # Remove stale tasks that no longer exist in Notion or are completed
+    fetched_ids = {t['id'] for t in tasks}
+    cached_ids = await get_all_cached_task_ids()
+    for old_id in cached_ids:
+        if old_id not in fetched_ids:
+            await delete_task_from_cache(old_id)
 
     return len(tasks), notified_count
 
