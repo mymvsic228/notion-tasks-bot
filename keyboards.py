@@ -6,10 +6,22 @@ def get_task_keyboard(task_id: str, url: str) -> InlineKeyboardMarkup:
     buttons = [
         [
             InlineKeyboardButton(text="🚀 В работу", callback_data=f"status:in_progress:{task_id}:single"),
-            InlineKeyboardButton(text="✅ Выполнено", callback_data=f"status:done:{task_id}:single")
+            InlineKeyboardButton(text="✅ Выполнено", callback_data=f"status:submit_done:{task_id}:single")
         ],
         [
             InlineKeyboardButton(text="🔗 Открыть в Notion", url=url)
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_approval_keyboard(task_id: str, assignee_tg_id: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text="✅ Принять", callback_data=f"approve_task:{task_id}:{assignee_tg_id}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_task:{task_id}:{assignee_tg_id}")
+        ],
+        [
+            InlineKeyboardButton(text="🔗 Открыть в Notion", url=f"https://www.notion.so/{task_id.replace('-', '')}")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -19,7 +31,7 @@ def get_paginated_task_keyboard(task_id: str, url: str, current_idx: int, total_
     buttons = [
         [
             InlineKeyboardButton(text="🚀 В работу", callback_data=f"status:in_progress:{task_id}:{current_idx}"),
-            InlineKeyboardButton(text="✅ Выполнено", callback_data=f"status:done:{task_id}:{current_idx}")
+            InlineKeyboardButton(text="✅ Выполнено", callback_data=f"status:submit_done:{task_id}:{current_idx}")
         ]
     ]
 
