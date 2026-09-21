@@ -8,14 +8,19 @@ from database import (
     get_user_by_telegram_id,
     link_notion_to_telegram,
     get_active_tasks_for_user,
-    update_task_status_cache
+    update_task_status_cache,
+    delete_task_from_cache,
+    mark_task_pending_approval,
+    clear_task_pending_approval,
+    get_task_cache
 )
 from notion_service import notion_service
 from keyboards import (
     get_main_menu_keyboard,
     get_link_users_keyboard,
     get_paginated_task_keyboard,
-    get_task_keyboard
+    get_task_keyboard,
+    get_approval_keyboard
 )
 
 logger = logging.getLogger(__name__)
@@ -258,9 +263,69 @@ async def cb_status_change(callback: CallbackQuery, bot: Bot):
         await callback.answer()
         return
 
-    action = parts[1] # "in_progress" or "done"
+    action = parts[1] # "in_progress", "done", "submit_done"
     task_id = parts[2]
     pos = parts[3] if len(parts) > 3 else "0"
+
+    if action == "submit_done":
+        cached = await get_task_cache(task_id)
+        title = cached.get('title', 'Без названия') if cached else 'Без названия'
+        etap = cached.get('etap', 'Не указан') if cached else 'Не указан'
+        assignee_name = cached.get('assignee_name', callback.from_user.full_name) if cached else callback.from_user.full_name
+        
+        await mark_task_pending_approval(task_id, callback.from_user.id, callback.from_user.full_name)
+        
+        admin_text = (
+            f"📬 Задача ожидает проверки!\n\n"
+            f"📌 <b>{title}</b>\n"
+            f"👤 Исполнитель: {assignee_name}\n"
+            f"📊 Статус: In progress → ожидает апрува\n"
+            f"🎬 Этап: {etap}\n\n"
+            f"Нажмите «Принять» чтобы закрыть задачу в Notion, или «Отклонить» чтобы вернуть исполнителю."
+        )
+        
+        for admin_id in [486058343, 1530089636]:
+            try:
+                await bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_text,
+                    parse_mode="HTML",
+                    reply_markup=get_approval_keyboard(task_id, callback.from_user.id)
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify admin {admin_id}: {e}")
+                
+        await callback.answer("⏳ Задача отправлена на проверку администратору!", show_alert=False)
+        
+        if pos == "single":
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+                await callback.message.edit_text(
+                    callback.message.html_text + f"\n\n<b>[⏳ На проверке у администратора]</b>",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+            return
+            
+        try:
+            current_idx = int(pos)
+        except Exception:
+            current_idx = 0
+            
+        tasks = await get_active_tasks_for_user(callback.from_user.id)
+        task = next((t for t in tasks if t["task_id"] == task_id), None)
+        if not task and tasks:
+            task = tasks[max(0, min(current_idx, len(tasks) - 1))]
+            
+        if task:
+            idx = tasks.index(task) if task in tasks else current_idx
+            url = task.get("url") or f"https://www.notion.so/{task_id.replace('-', '')}"
+            text = format_task_card_text(task, idx, len(tasks)) + "\n\n<b>[⏳ На проверке у администратора]</b>"
+            kb = get_paginated_task_keyboard(task_id, url, idx, len(tasks))
+            await clean_send_or_edit(bot, callback.from_user.id, text, reply_markup=kb, callback=callback)
+            
+        return
 
     await callback.answer("⏳ Обновляю в Notion...")
 
@@ -331,6 +396,70 @@ async def cb_status_change(callback: CallbackQuery, bot: Bot):
             text = format_task_card_text(task, idx, len(tasks))
             kb = get_paginated_task_keyboard(task_id, url, idx, len(tasks))
             await clean_send_or_edit(bot, callback.from_user.id, text, reply_markup=kb, callback=callback)
+
+@router.callback_query(F.data.startswith("approve_task:"))
+async def cb_approve_task(callback: CallbackQuery, bot: Bot):
+    # Only admins can approve
+    # Parse: approve_task:<task_id>:<assignee_tg_id>
+    parts = callback.data.split(":")
+    task_id = parts[1]
+    assignee_tg_id = int(parts[2])
+    
+    # Mark done in Notion
+    success = await notion_service.update_task_status(task_id, "done")
+    if not success:
+        await callback.answer("⚠️ Ошибка обновления в Notion", show_alert=True)
+        return
+    
+    # Remove from cache
+    await delete_task_from_cache(task_id)
+    
+    # Edit admin message
+    await callback.message.edit_text(
+        callback.message.html_text + "\n\n✅ <b>Принято!</b> Задача закрыта в Notion.",
+        parse_mode="HTML"
+    )
+    await callback.answer("✅ Задача принята!")
+    
+    # Notify executor
+    try:
+        cached = await get_task_cache(task_id)
+        title = cached.get('title', 'Задача') if cached else 'Задача'
+        await bot.send_message(
+            chat_id=assignee_tg_id,
+            text=f"✅ <b>Ваша задача принята!</b>\n\n📌 <b>{title}</b>\n\nОтличная работа! Задача закрыта в Notion.",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Failed to notify executor {assignee_tg_id}: {e}")
+
+@router.callback_query(F.data.startswith("reject_task:"))
+async def cb_reject_task(callback: CallbackQuery, bot: Bot):
+    parts = callback.data.split(":")
+    task_id = parts[1]
+    assignee_tg_id = int(parts[2])
+    
+    # Clear pending approval
+    await clear_task_pending_approval(task_id)
+    
+    # Edit admin message  
+    await callback.message.edit_text(
+        callback.message.html_text + "\n\n❌ <b>Отклонено.</b> Задача возвращена исполнителю.",
+        parse_mode="HTML"
+    )
+    await callback.answer("❌ Задача отклонена")
+    
+    # Notify executor
+    try:
+        cached = await get_task_cache(task_id)
+        title = cached.get('title', 'Задача') if cached else 'Задача'
+        await bot.send_message(
+            chat_id=assignee_tg_id,
+            text=f"❌ <b>Задача возвращена на доработку.</b>\n\n📌 <b>{title}</b>\n\nАдминистратор отклонил выполнение. Задача остается в работе.",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Failed to notify executor {assignee_tg_id}: {e}")
 
 @router.callback_query(F.data == "btn_sync_now")
 async def cb_sync_now(callback: CallbackQuery, bot: Bot):
