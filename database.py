@@ -30,7 +30,10 @@ async def init_db(db_path: str = DB_PATH):
                 due_date TEXT,
                 url TEXT,
                 deadline_reminded INTEGER DEFAULT 0,
-                notified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                notified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                pending_approval INTEGER DEFAULT 0,
+                pending_assignee_tg_id INTEGER,
+                pending_assignee_name TEXT
             )
         """)
         await db.execute("""
@@ -46,6 +49,18 @@ async def init_db(db_path: str = DB_PATH):
             pass
         try:
             await db.execute("ALTER TABLE tasks_cache ADD COLUMN url TEXT")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE tasks_cache ADD COLUMN pending_approval INTEGER DEFAULT 0")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE tasks_cache ADD COLUMN pending_assignee_tg_id INTEGER")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE tasks_cache ADD COLUMN pending_assignee_name TEXT")
         except Exception:
             pass
         await db.commit()
@@ -257,7 +272,41 @@ async def get_active_tasks_for_user(telegram_id: int, db_path: str = DB_PATH) ->
             SELECT * FROM tasks_cache 
             WHERE assignee_telegram_id = ? 
               AND LOWER(status) NOT IN ('done', 'выполнено', 'closed', 'завершено', 'готово', 'опубликован', 'завершен')
+              AND (etap IS NULL OR etap NOT IN ('Опубликован', 'Завершен', 'Нереализован'))
             ORDER BY due_date ASC
         """, (telegram_id,)) as cursor:
             rows = await cursor.fetchall()
             return [dict(r) for r in rows]
+
+async def delete_task_from_cache(task_id: str, db_path: str = DB_PATH):
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("DELETE FROM tasks_cache WHERE task_id = ?", (task_id,))
+        await db.commit()
+
+async def mark_task_pending_approval(task_id: str, assignee_tg_id: int, assignee_name: str, db_path: str = DB_PATH):
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("""
+            UPDATE tasks_cache 
+            SET pending_approval = 1, 
+                pending_assignee_tg_id = ?, 
+                pending_assignee_name = ?
+            WHERE task_id = ?
+        """, (assignee_tg_id, assignee_name, task_id))
+        await db.commit()
+
+async def clear_task_pending_approval(task_id: str, db_path: str = DB_PATH):
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("""
+            UPDATE tasks_cache 
+            SET pending_approval = 0, 
+                pending_assignee_tg_id = NULL, 
+                pending_assignee_name = NULL
+            WHERE task_id = ?
+        """, (task_id,))
+        await db.commit()
+
+async def get_all_cached_task_ids(db_path: str = DB_PATH) -> list:
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("SELECT task_id FROM tasks_cache") as cur:
+            rows = await cur.fetchall()
+            return [r[0] for r in rows]
